@@ -1,0 +1,66 @@
+name: Deployment Pipeline
+on:
+  push:
+    branches:
+      - main
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ubuntu
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e  # Exit script on error
+            cd /home/ubuntu/telex_cicd
+            git pull origin main
+            # Install python3-venv if not installed
+            sudo apt-get update
+            sudo apt-get install -y python3-venv
+            # Remove old venv if exists
+            rm -rf venv
+            # Create venv
+            python3 -m venv venv
+            # Activate and install dependencies
+            source venv/bin/activate
+            pip install --upgrade pip
+            pip install -r requirements.txt
+            # Update NGINX configuration
+            
+            sudo ln -sf /etc/nginx/sites-available/yourdomain.com /etc/nginx/sites-enabled/
+            sudo nginx -t && sudo systemctl reload nginx
+            # Stop existing application if running
+            echo "Stopping existing application..."
+            killall uvicorn || echo "No existing process found"
+            echo "Application stopped successfully"
+            # Start application
+            echo "Starting application..."
+            nohup uvicorn main:app --host 0.0.0.0 --port 8000 > app.log 2>&1 &
+            echo "Application started"
+          timeout: 60s  # Increase the timeout to 60 seconds
+
+      - name: Send Deployment Status
+        if: always()
+        uses: actions/http-client@v2
+        with:
+          url: ${{ secrets.INTEGRATION_API_URL }}/notifications/github
+          method: POST
+          headers: |
+            Authorization: Bearer ${{ secrets.API_TOKEN }}
+            Content-Type: application/json
+          body: |
+            {
+              "repository": "${{ github.repository }}",
+              "workflow": "Production Deployment",
+              "status": "${{ job.status }}",
+              "actor": "${{ github.actor }}",
+              "run_id": "${{ github.run_id }}",
+              "run_number": "${{ github.run_number }}",
+              "ref": "${{ github.ref }}"
+            }
