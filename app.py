@@ -45,7 +45,7 @@ class IntegrationRequest(BaseModel):
 
 class TelegramBot:
     def __init__(self):
-        self.bot_token = os.getenv('7712081223:AAEBw_u3lAOgABAMRbK2oow07kd47b67h6M')
+        self.bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
         
     async def send_message(self, chat_id: str, message: str):
         async with httpx.AsyncClient() as client:
