@@ -1,4 +1,80 @@
 from fastapi import FastAPI, HTTPException, Depends, Security
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel
+import httpx
+import os
+from sqlalchemy import create_engine, Column, String, Integer
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, Session
+from datetime import datetime
+
+app = FastAPI()
+security = HTTPBearer()
+
+# Database setup
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://myuser:mypassword@13.61.145.141:5432/mydatabase")
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+Base = declarative_base()
+
+class Integration(Base):
+    __tablename__ = "integrations"
+    
+    id = Column(Integer, primary_key=True)
+    github_repo = Column(String, index=True)
+    telegram_chat_id = Column(String)
+    created_at = Column(String, default=lambda: datetime.utcnow().isoformat())
+    api_key = Column(String, unique=True)
+
+Base.metadata.create_all(bind=engine)  # Create tables
+
+class GitHubWebhook(BaseModel):
+    repository: str
+    workflow: str
+    status: str
+    actor: str
+    run_id: str
+    run_number: str
+    ref: str
+
+class IntegrationRequest(BaseModel):
+    github_repo: str
+    telegram_chat_id: str
+
+class TelegramBot:
+    def __init__(self):
+        self.bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
+        
+    async def send_message(self, chat_id: str, message: str):
+        async with httpx.AsyncClient() as client:
+            telegram_url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+            params = {
+                "chat_id": chat_id,
+                "text": message,
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": True
+            }
+            
+            response = await client.post(telegram_url, json=params)
+            if response.status_code != 200:
+                raise HTTPException(status_code=500, detail="Failed to send Telegram message")
+
+bot = TelegramBot()
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+@app.post("/setup")
+async def setup_integration(
+    request: IntegrationRequest,
+    db: Session = Depends(get_db)
+):
+    """Setup a new integration for a GitHub repository with Telegram"""
     # Generate unique API key
     api_key = os.urandom(16).hex()
     
