@@ -2,4 +2,6 @@ fastapi
 uvicorn
 httpx
 pydantic
-SQLAlchemy
+sqlalchemy
+psycopg2-binary  # PostgreSQL driver
+python-dotenv  # For managing environment variables
