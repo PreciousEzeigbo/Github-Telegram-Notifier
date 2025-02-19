@@ -12,9 +12,11 @@ app = FastAPI()
 security = HTTPBearer()
 
 # Database setup
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:password@db-host/db-name')  # Use PostgreSQL
-engine = create_engine(DATABASE_URL)
+DB_PATH = "/data/database.db" if os.getenv("RENDER") else "./database.db"
+DATABASE_URL = f"sqlite:///{DB_PATH}"
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
 Base = declarative_base()
 
 class Integration(Base):
