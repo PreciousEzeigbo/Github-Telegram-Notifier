@@ -1,10 +1,8 @@
-# app.py
 from fastapi import FastAPI, HTTPException, Depends, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import httpx
 import os
-from typing import Optional, List
 from sqlalchemy import create_engine, Column, String, Integer
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -14,9 +12,9 @@ app = FastAPI()
 security = HTTPBearer()
 
 # Database setup
-DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///./telegram_integrations.db')
+DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:password@db-host/db-name')  # Use PostgreSQL
 engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoload=True, bind=engine)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 class Integration(Base):
@@ -25,10 +23,10 @@ class Integration(Base):
     id = Column(Integer, primary_key=True)
     github_repo = Column(String, index=True)
     telegram_chat_id = Column(String)
-    created_at = Column(String, default=datetime.utcnow)
+    created_at = Column(String, default=lambda: datetime.utcnow().isoformat())
     api_key = Column(String, unique=True)
 
-Base.metadata.create_all(bind=engine)
+Base.metadata.create_all(bind=engine)  # Create tables
 
 class GitHubWebhook(BaseModel):
     repository: str
