@@ -12,7 +12,9 @@ app = FastAPI()
 security = HTTPBearer()
 
 # Database setup
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://myuser:mypassword@13.61.145.141:5432/mydatabase")
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL environment variable is required")
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -139,4 +141,5 @@ async def handle_github_webhook(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run(app, host="0.0.0.0", port=port)
