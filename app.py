@@ -1,8 +1,9 @@
-from fastapi import FastAPI, HTTPException, Depends, Security
+from fastapi import FastAPI, HTTPException, Depends, Security, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 import httpx
 import os
+import json
 from sqlalchemy import create_engine, Column, String, Integer
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -15,11 +16,12 @@ security = HTTPBearer()
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable is required")
+
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
 Base = declarative_base()
 
+# Database model for storing integrations
 class Integration(Base):
     __tablename__ = "integrations"
     
@@ -31,6 +33,7 @@ class Integration(Base):
 
 Base.metadata.create_all(bind=engine)  # Create tables
 
+# Pydantic model for handling GitHub webhook payload
 class GitHubWebhook(BaseModel):
     repository: str
     workflow: str
@@ -40,30 +43,26 @@ class GitHubWebhook(BaseModel):
     run_number: str
     ref: str
 
-class IntegrationRequest(BaseModel):
-    github_repo: str
-    chat_id: str
-
+# Telegram bot class to send messages
 class TelegramBot:
     def __init__(self):
         self.bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
-        
+        self.api_url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+
     async def send_message(self, chat_id: str, message: str):
         async with httpx.AsyncClient() as client:
-            telegram_url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-            params = {
+            response = await client.post(self.api_url, json={
                 "chat_id": chat_id,
                 "text": message,
                 "parse_mode": "Markdown",
                 "disable_web_page_preview": True
-            }
-            
-            response = await client.post(telegram_url, json=params)
+            })
             if response.status_code != 200:
                 raise HTTPException(status_code=500, detail="Failed to send Telegram message")
 
 bot = TelegramBot()
 
+# Dependency to get database session
 def get_db():
     db = SessionLocal()
     try:
@@ -71,36 +70,80 @@ def get_db():
     finally:
         db.close()
 
+# Store user states and temporary data for Telegram onboarding
+USER_STATES = {}
+USER_DATA = {}
+
+@app.post("/telegram_webhook")
+async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
+    """Handles incoming Telegram messages and guides user setup"""
+    data = await request.json()
+
+    if "message" not in data:
+        return {"status": "ignored"}
+
+    chat_id = str(data["message"]["chat"]["id"])
+    text = data["message"].get("text", "").strip()
+
+    if chat_id not in USER_STATES:
+        USER_STATES[chat_id] = "start"
+        USER_DATA[chat_id] = {"chat_id": chat_id}
+
+    state = USER_STATES[chat_id]
+
+    if text == "/start":
+        USER_STATES[chat_id] = "waiting_for_repo"
+        return await bot.send_message(chat_id, "Welcome! Let's set up your integration.\n\nPlease enter your GitHub repository name:")
+
+    elif state == "waiting_for_repo":
+        USER_DATA[chat_id]["github_repo"] = text
+        USER_STATES[chat_id] = "waiting_for_api_key"
+        return await bot.send_message(chat_id, "Got it! Now, please enter your API Key:")
+
+    elif state == "waiting_for_api_key":
+        USER_DATA[chat_id]["api_key"] = text
+        USER_STATES[chat_id] = "done"
+
+        # Save integration to database
+        new_integration = Integration(
+            github_repo=USER_DATA[chat_id]["github_repo"],
+            chat_id=chat_id,
+            api_key=USER_DATA[chat_id]["api_key"]
+        )
+        db.add(new_integration)
+        db.commit()
+
+        del USER_STATES[chat_id]
+        del USER_DATA[chat_id]
+
+        return await bot.send_message(chat_id, "✅ Integration complete! You will now receive GitHub notifications here.")
+
+    return {"status": "ok"}
+
 @app.post("/setup")
-async def setup_integration(
-    request: IntegrationRequest,
-    db: Session = Depends(get_db)
-):
-    """Setup a new integration for a GitHub repository with Telegram"""
-    # Generate unique API key
+async def setup_integration(request: GitHubWebhook, db: Session = Depends(get_db)):
+    """Setup integration via API"""
     api_key = os.urandom(16).hex()
-    
-    # Create new integration
+
     integration = Integration(
-        github_repo=request.github_repo,
-        telegram_chat_id=request.chat_id,
+        github_repo=request.repository,
+        chat_id=request.chat_id,
         api_key=api_key
     )
-    
+
     db.add(integration)
     db.commit()
-    
-    # Send test message to Telegram
-    welcome_message = (
+
+    message = (
         f"🔗 *GitHub Integration Setup Complete*\n\n"
-        f"Your GitHub repository `{request.github_repo}` has been connected to this chat.\n"
+        f"Your GitHub repository `{request.repository}` has been connected to this chat.\n"
         f"You will receive notifications for workflow runs here.\n\n"
         f"Your API Key: `{api_key}`\n"
         f"Add this key to your GitHub repository secrets as `API_TOKEN`"
     )
-    
-    await bot.send_message(request.chat_id, welcome_message)
-    
+
+    await bot.send_message(request.chat_id, message)
+
     return {
         "status": "success",
         "api_key": api_key,
@@ -113,16 +156,14 @@ async def handle_github_webhook(
     credentials: HTTPAuthorizationCredentials = Security(security),
     db: Session = Depends(get_db)
 ):
-    # Find integration by API key
+    """Handles GitHub webhook notifications"""
     integration = db.query(Integration).filter_by(api_key=credentials.credentials).first()
     if not integration:
         raise HTTPException(status_code=401, detail="Invalid API key")
-    
-    # Verify repository matches
+
     if integration.github_repo != webhook.repository:
         raise HTTPException(status_code=403, detail="Repository mismatch")
-    
-    # Format message
+
     message = (
         f"🔔 *GitHub Workflow Update*\n\n"
         f"*Repository:* `{webhook.repository}`\n"
@@ -133,10 +174,9 @@ async def handle_github_webhook(
         f"*Branch:* `{webhook.ref}`\n\n"
         f"[View Run](https://github.com/{webhook.repository}/actions/runs/{webhook.run_id})"
     )
-    
-    # Send to Telegram
+
     await bot.send_message(integration.chat_id, message)
-    
+
     return {"status": "success", "message": "Notification sent"}
 
 if __name__ == "__main__":
