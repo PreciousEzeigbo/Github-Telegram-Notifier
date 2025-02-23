@@ -42,7 +42,7 @@ class GitHubWebhook(BaseModel):
 
 class IntegrationRequest(BaseModel):
     github_repo: str
-    telegram_chat_id: str
+    chat_id: str
 
 class TelegramBot:
     def __init__(self):
