@@ -136,7 +136,7 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
 @app.post("/notifications/github")
 async def handle_github_webhook(
     webhook: GitHubWebhook,
-    credentials: HTTPAuthorizationCredentials = Security(security),
+    api_key: str = Query(...),  # Extract API key from query params
     db: Session = Depends(get_db)
 ):
     """Handles GitHub webhook notifications"""
