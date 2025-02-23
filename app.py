@@ -83,7 +83,7 @@ async def setup_integration(
     # Create new integration
     integration = Integration(
         github_repo=request.github_repo,
-        telegram_chat_id=request.telegram_chat_id,
+        telegram_chat_id=request.chat_id,
         api_key=api_key
     )
     
@@ -99,7 +99,7 @@ async def setup_integration(
         f"Add this key to your GitHub repository secrets as `API_TOKEN`"
     )
     
-    await bot.send_message(request.telegram_chat_id, welcome_message)
+    await bot.send_message(request.chat_id, welcome_message)
     
     return {
         "status": "success",
@@ -135,7 +135,7 @@ async def handle_github_webhook(
     )
     
     # Send to Telegram
-    await bot.send_message(integration.telegram_chat_id, message)
+    await bot.send_message(integration.chat_id, message)
     
     return {"status": "success", "message": "Notification sent"}
 
