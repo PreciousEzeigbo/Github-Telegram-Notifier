@@ -25,7 +25,7 @@ class Integration(Base):
     
     id = Column(Integer, primary_key=True)
     github_repo = Column(String, index=True)
-    telegram_chat_id = Column(String)
+    chat_id = Column(String)
     created_at = Column(String, default=lambda: datetime.utcnow().isoformat())
     api_key = Column(String, unique=True)
 
