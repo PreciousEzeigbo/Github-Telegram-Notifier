@@ -98,10 +98,23 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
     elif state == "waiting_for_repo":
         USER_DATA[chat_id]["github_repo"] = text
         USER_STATES[chat_id] = "waiting_for_api_key"
-        return await bot.send_message(chat_id, "Got it! Now, please enter your API Key:")
+        return await bot.send_message(chat_id, "Got it! Now, please enter your API Key, or type 'none' if you don't have one:")
 
     elif state == "waiting_for_api_key":
-        USER_DATA[chat_id]["api_key"] = text
+        if text.lower() == "none":
+            api_key = os.urandom(16).hex()
+            USER_DATA[chat_id]["api_key"] = api_key
+            message = (
+                f"🔗 *GitHub Integration Setup Complete*\n\n"
+                f"Your GitHub repository `{USER_DATA[chat_id]['github_repo']}` has been connected to this chat.\n"
+                f"You will receive notifications for workflow runs here.\n\n"
+                f"Your API Key: `{api_key}`\n"
+                f"Add this key to your GitHub repository secrets as `API_TOKEN`"
+            )
+            await bot.send_message(chat_id, message)
+        else:
+            USER_DATA[chat_id]["api_key"] = text
+
         USER_STATES[chat_id] = "done"
 
         # Save integration to database
@@ -119,36 +132,6 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
         return await bot.send_message(chat_id, "✅ Integration complete! You will now receive GitHub notifications here.")
 
     return {"status": "ok"}
-
-@app.post("/setup")
-async def setup_integration(request: GitHubWebhook, db: Session = Depends(get_db)):
-    """Setup integration via API"""
-    api_key = os.urandom(16).hex()
-
-    integration = Integration(
-        github_repo=request.repository,
-        chat_id=request.chat_id,
-        api_key=api_key
-    )
-
-    db.add(integration)
-    db.commit()
-
-    message = (
-        f"🔗 *GitHub Integration Setup Complete*\n\n"
-        f"Your GitHub repository `{request.repository}` has been connected to this chat.\n"
-        f"You will receive notifications for workflow runs here.\n\n"
-        f"Your API Key: `{api_key}`\n"
-        f"Add this key to your GitHub repository secrets as `API_TOKEN`"
-    )
-
-    await bot.send_message(request.chat_id, message)
-
-    return {
-        "status": "success",
-        "api_key": api_key,
-        "message": "Integration setup complete. Add the API key to your GitHub repository secrets."
-    }
 
 @app.post("/notifications/github")
 async def handle_github_webhook(
