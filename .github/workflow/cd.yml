@@ -2,10 +2,13 @@ jobs:
   notify:
     runs-on: ubuntu-latest
     steps:
+      - name: Enable debugging
+        run: set -x  # This will show each command as it runs
+
       - name: Send webhook notification
         run: |
-          curl -X POST "https://telex-cicd.onrender.com/notifications/github" \
-          -H "Authorization: Bearer ${{ secrets.API_TOKEN }}" \
+          curl -v -X POST "https://telex-cicd.onrender.com/notifications/github" \
+          -H "X-API-KEY: ${{ secrets.API_TOKEN }}" \
           -H "Content-Type: application/json" \
           -d '{
             "repository": "${{ github.repository }}",
