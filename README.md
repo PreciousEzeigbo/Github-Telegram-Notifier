@@ -60,7 +60,6 @@ GITHUB_TOKEN=your_github_personal_access_token # Optional but recommended
 
 ### 5. Initialize the database
 
-
 ## Deployment
 
 ### Option 1: Deploy to Railway
