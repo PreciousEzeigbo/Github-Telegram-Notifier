@@ -198,7 +198,7 @@ def get_db():
 USER_STATES = {}
 USER_DATA = {}
 
-@app.post("/telegram_webhook")
+@app.post("/notifications/telegram")
 async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
     """Handles incoming Telegram messages and guides user setup"""
     data = await request.json()
